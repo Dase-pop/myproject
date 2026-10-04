@@ -2,9 +2,7 @@ export async function onRequest(context) {
   const { request, env, next } = context;
   const url = new URL(request.url);
 
-  if (url.pathname.startsWith('/api/')) {
-    return next();
-  }
+  if (url.pathname.startsWith('/api/')) return next();
 
   const userAgent = request.headers.get('User-Agent') || 'Unknown';
   const ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
@@ -20,100 +18,76 @@ export async function onRequest(context) {
     !url.pathname.startsWith('/trap/') &&
     !url.pathname.startsWith('/specimen/');
 
-  if (isLikelyMe) {
-    return next();
-  }
-
-  let isBlocked = false;
-  try {
-    const blocked = await env.SENTINEL_KV.get(`blocked:${ip}`);
-    if (blocked) isBlocked = true;
-  } catch (e) {}
-
-  if (isBlocked) {
-    return new Response(
-      `<html><body style="background:#000;color:#555;font-family:monospace;padding:40px;">
-        <h1>503 Service Unavailable</h1>
-        <p>The server is currently overloaded. Please try again later.</p>
-      </body></html>`,
-      { status: 503, headers: { 'Content-Type': 'text/html' } }
-    );
-  }
+  if (isLikelyMe) return next();
 
   const entity = identifyEntity(userAgent, ip, referer);
   const threatScore = calculateThreatScore(entity, acceptLang, referer);
+  const now = Date.now();
 
-  // ===== TRAP ROOM: dedupe by IP =====
+  // ===== TRAP ROOM: respond immediately, write to KV only first time per hour =====
   if (url.pathname.startsWith('/trap/')) {
-    let trapCount = 1;
     let isNewTrapIp = true;
-
     try {
-      const trapKey = `trap_count:${ip}`;
-      trapCount = parseInt(await env.SENTINEL_KV.get(trapKey) || '0', 10) + 1;
-      await env.SENTINEL_KV.put(trapKey, String(trapCount), { expirationTtl: 86400 });
-
       const loggedKey = `trap_logged:${ip}`;
       const alreadyLogged = await env.SENTINEL_KV.get(loggedKey);
       if (alreadyLogged) isNewTrapIp = false;
-      else await env.SENTINEL_KV.put(loggedKey, '1', { expirationTtl: 3600 });
     } catch (e) {}
 
     if (isNewTrapIp) {
-      // Log only the first hit per IP per hour
-      const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const logKey = `hit_${now}_${Math.random().toString(36).substring(7)}`;
       const logData = {
-        id: logKey,
-        ip: ip,
-        ua: userAgent,
-        path: url.pathname,
-        referer: referer,
-        country: country,
-        acceptLang: acceptLang,
-        acceptEnc: acceptEnc,
+        id: logKey, ip, ua: userAgent, path: url.pathname,
+        referer, country, acceptLang, acceptEnc,
         time: new Date().toISOString(),
-        entity: entity.name,
-        class: entity.class,
-        isImposter: entity.isImposter,
-        threatScore: threatScore,
-        action: 'TRAPPED',
-        trapCount: trapCount
+        entity: entity.name, class: entity.class,
+        isImposter: entity.isImposter, threatScore,
+        action: 'TRAPPED'
       };
-
       try {
         if (env.SENTINEL_KV) {
           await env.SENTINEL_KV.put(logKey, JSON.stringify(logData), { expirationTtl: 604800 });
-          context.waitUntil(updateStats(env, logData));
+          await env.SENTINEL_KV.put(`trap_logged:${ip}`, '1', { expirationTtl: 3600 });
         }
       } catch (e) {}
     }
 
-    return new Response(generateLabyrinth(trapCount), {
+    return new Response(generateLabyrinth(), {
       headers: {
         'Content-Type': 'text/html',
         'X-Sentinel-KV': isNewTrapIp ? 'ok' : 'deduped',
-        'X-Sentinel-Entity': entity.name,
-        'X-Sentinel-Trap-Count': String(trapCount)
+        'X-Sentinel-Entity': entity.name
       }
     });
   }
 
-  // ===== NORMAL REQUESTS =====
-  const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  // ===== NORMAL REQUESTS: rate-limit KV writes per IP =====
+  // Check if this IP was already logged in the last 5 minutes
+  let isDuplicate = false;
+  try {
+    const recentKey = `recent_ip:${ip}`;
+    const lastSeen = await env.SENTINEL_KV.get(recentKey);
+    if (lastSeen && (now - parseInt(lastSeen, 10)) < 300000) {
+      isDuplicate = true;
+    }
+  } catch (e) {}
+
+  if (isDuplicate) {
+    // Don't write to KV, just serve the page
+    const response = await next();
+    const newResponse = new Response(response.body, response);
+    newResponse.headers.set('X-Sentinel-KV', 'rate-limited');
+    newResponse.headers.set('X-Sentinel-Entity', entity.name);
+    newResponse.headers.set('X-Sentinel-Threat', String(threatScore));
+    return newResponse;
+  }
+
+  const logKey = `hit_${now}_${Math.random().toString(36).substring(7)}`;
   const logData = {
-    id: logKey,
-    ip: ip,
-    ua: userAgent,
-    path: url.pathname,
-    referer: referer,
-    country: country,
-    acceptLang: acceptLang,
-    acceptEnc: acceptEnc,
+    id: logKey, ip, ua: userAgent, path: url.pathname,
+    referer, country, acceptLang, acceptEnc,
     time: new Date().toISOString(),
-    entity: entity.name,
-    class: entity.class,
-    isImposter: entity.isImposter,
-    threatScore: threatScore,
+    entity: entity.name, class: entity.class,
+    isImposter: entity.isImposter, threatScore,
     action: 'OBSERVED'
   };
 
@@ -123,20 +97,15 @@ export async function onRequest(context) {
       kvResult = 'BINDING_MISSING';
     } else {
       await env.SENTINEL_KV.put(logKey, JSON.stringify(logData), { expirationTtl: 604800 });
+      await env.SENTINEL_KV.put(`recent_ip:${ip}`, String(now), { expirationTtl: 3600 });
       context.waitUntil(updateStats(env, logData));
-      if (entity.isImposter) {
-        context.waitUntil(trackImposter(env, ip));
-      }
+      if (entity.isImposter) context.waitUntil(trackImposter(env, ip));
     }
   } catch (e) {
     kvResult = 'ERROR: ' + e.message;
   }
 
-  const shouldAlert =
-    entity.class === 'AI' ||
-    entity.class === 'Scraper' ||
-    entity.isImposter === true;
-
+  const shouldAlert = entity.class === 'AI' || entity.class === 'Scraper' || entity.isImposter === true;
   if (shouldAlert && env.RESEND_API_KEY) {
     context.waitUntil(sendAlertIfNotRecent(env, logData));
   }
@@ -149,49 +118,34 @@ export async function onRequest(context) {
   return newResponse;
 }
 
-function identifyEntity(ua, ip, referer) {
-  let name = 'Unknown Entity';
-  let classType = 'Feral';
-  let isImposter = false;
-
+function identifyEntity(ua, ip) {
+  let name = 'Unknown Entity', classType = 'Feral', isImposter = false;
   if (/chatgpt-user|claudebot|gptbot|anthropic|bytespider|perplexity|cohere|youbot/i.test(ua)) {
-    name = 'AI Scraper';
-    classType = 'AI';
+    name = 'AI Scraper'; classType = 'AI';
   } else if (/ahrefs|semrush|mj12|dotbot|blexbot|dataforseo|screaming|seokicks/i.test(ua)) {
-    name = 'SEO Harvester';
-    classType = 'Scraper';
+    name = 'SEO Harvester'; classType = 'Scraper';
   } else if (/googlebot/i.test(ua)) {
-    name = 'Googlebot';
-    classType = 'Search Engine';
+    name = 'Googlebot'; classType = 'Search Engine';
     if (!ip.startsWith('66.249.') && !ip.startsWith('34.') && !ip.startsWith('35.')) {
-      isImposter = true;
-      name = 'Fake Googlebot';
+      isImposter = true; name = 'Fake Googlebot';
     }
   } else if (/googleother|google-inspectiontool/i.test(ua)) {
-    name = 'GoogleOther';
-    classType = 'Search Engine';
+    name = 'GoogleOther'; classType = 'Search Engine';
     if (!ip.startsWith('66.249.') && !ip.startsWith('34.') && !ip.startsWith('35.')) {
-      isImposter = true;
-      name = 'Fake GoogleOther';
+      isImposter = true; name = 'Fake GoogleOther';
     }
   } else if (/bingbot/i.test(ua)) {
-    name = 'Bingbot';
-    classType = 'Search Engine';
+    name = 'Bingbot'; classType = 'Search Engine';
     if (!ip.startsWith('40.77.') && !ip.startsWith('157.55.') && !ip.startsWith('207.46.')) {
-      isImposter = true;
-      name = 'Fake Bingbot';
+      isImposter = true; name = 'Fake Bingbot';
     }
   } else if (/slackbot|twitterbot|facebookexternalhit|discordbot|linkedinbot|telegrambot|whatsapp/i.test(ua)) {
-    name = 'Link Preview Bot';
-    classType = 'Petting Zoo';
+    name = 'Link Preview Bot'; classType = 'Petting Zoo';
   } else if (/uptimerobot|pingdom|statuscake|betteruptime/i.test(ua)) {
-    name = 'Uptime Monitor';
-    classType = 'Monitor';
+    name = 'Uptime Monitor'; classType = 'Monitor';
   } else if (/nikto|sqlmap|nmap|masscan|acunetix|nessus|dirbuster|wfuzz|zgrab/i.test(ua)) {
-    name = 'Security Scanner';
-    classType = 'Threat';
+    name = 'Security Scanner'; classType = 'Threat';
   }
-
   return { name, class: classType, isImposter };
 }
 
@@ -211,7 +165,6 @@ function calculateThreatScore(entity, acceptLang, referer) {
 async function updateStats(env, data) {
   try {
     const today = new Date().toISOString().split('T')[0];
-
     const total = parseInt(await env.SENTINEL_KV.get('stats:total') || '0', 10);
     await env.SENTINEL_KV.put('stats:total', String(total + 1));
 
@@ -228,11 +181,6 @@ async function updateStats(env, data) {
       await env.SENTINEL_KV.put('stats:imposters', String(imp + 1));
     }
 
-    if (data.action === 'TRAPPED') {
-      const tr = parseInt(await env.SENTINEL_KV.get('stats:trapped') || '0', 10);
-      await env.SENTINEL_KV.put('stats:trapped', String(tr + 1));
-    }
-
     const dailyKey = `stats:daily:${today}`;
     const daily = parseInt(await env.SENTINEL_KV.get(dailyKey) || '0', 10);
     await env.SENTINEL_KV.put(dailyKey, String(daily + 1), { expirationTtl: 90 * 86400 });
@@ -242,9 +190,7 @@ async function updateStats(env, data) {
     if (!currentBotDay || data.threatScore > 30) {
       await env.SENTINEL_KV.put(botDayKey, JSON.stringify(data), { expirationTtl: 90 * 86400 });
     }
-  } catch (e) {
-    console.error('Stats update failed:', e.message);
-  }
+  } catch (e) {}
 }
 
 async function trackImposter(env, ip) {
@@ -265,18 +211,14 @@ async function sendAlertIfNotRecent(env, data) {
     if (recent) return;
     await env.SENTINEL_KV.put(rateKey, '1', { expirationTtl: 3600 });
     await sendAlertEmail(env, data);
-  } catch (e) {
-    console.error('Alert rate-limit check failed:', e.message);
-  }
+  } catch (e) {}
 }
 
-function generateLabyrinth(trapCount) {
-  const count = trapCount || 1;
+function generateLabyrinth() {
   let html = `<html><head><title>Sentinel Grid</title></head>
   <body style="background:#000;color:#0f0;font-family:monospace;padding:40px;">
   <h1>⚠️ SENTINEL GRID: TRAP TRIGGERED ⚠️</h1>
-  <p>You have entered a restricted zone. Your IP and User-Agent have been logged.</p>
-  <p style="color:#ffaa00;">Trap visits from your IP: <strong>${count}</strong></p>
+  <p>Your IP and User-Agent have been logged.</p>
   <ul>`;
   for (let i = 0; i < 50; i++) {
     html += `<li><a href="/trap/${Math.random().toString(36).substring(7)}" style="color:#0f0;">Decrypting Sector ${i}...</a></li>`;
@@ -286,16 +228,11 @@ function generateLabyrinth(trapCount) {
 }
 
 async function sendAlertEmail(env, data) {
-  const subjectTag = data.isImposter
-    ? '🚨 IMPOSTER'
-    : (data.class === 'AI' ? '🤖 AI SCRAPER' : '🕷 SCRAPER');
-
+  const subjectTag = data.isImposter ? '🚨 IMPOSTER' : (data.class === 'AI' ? '🤖 AI SCRAPER' : '🕷 SCRAPER');
   const threatColor = data.threatScore >= 50 ? '#ff003c' : (data.threatScore >= 25 ? '#ffaa00' : '#00ff41');
-
   const html = `
     <div style="font-family:monospace;background:#050505;color:#00ff41;padding:24px;border-radius:8px;">
       <h2 style="color:#00ff41;margin:0 0 16px;">🛡️ SENTINEL GRID ALERT</h2>
-      <p style="margin:0 0 16px;color:#ccc;font-size:14px;">A high-value entity has hit your grid.</p>
       <div style="background:#111;padding:12px;border-radius:6px;margin-bottom:16px;">
         <span style="color:#666;font-size:12px;">THREAT SCORE</span>
         <div style="color:${threatColor};font-size:28px;font-weight:bold;">${data.threatScore}<span style="color:#666;font-size:14px;">/100</span></div>
@@ -303,53 +240,29 @@ async function sendAlertEmail(env, data) {
       <table style="border-collapse:collapse;color:#ccc;font-size:13px;">
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Entity:</td><td style="padding:4px 0;"><strong>${escapeHtml(data.entity)}</strong></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Class:</td><td style="padding:4px 0;">${escapeHtml(data.class)}</td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666;">Action:</td><td style="padding:4px 0;">${escapeHtml(data.action)}</td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">IP:</td><td style="padding:4px 0;">${escapeHtml(data.ip)}</td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Country:</td><td style="padding:4px 0;">${escapeHtml(data.country)}</td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Path:</td><td style="padding:4px 0;">${escapeHtml(data.path)}</td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666;">Imposter:</td><td style="padding:4px 0;">${data.isImposter ? '<span style="color:#ff003c;">YES</span>' : 'No'}</td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666;">Referer:</td><td style="padding:4px 0;">${escapeHtml(data.referer || '—')}</td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Time:</td><td style="padding:4px 0;">${escapeHtml(data.time)}</td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666;">Log ID:</td><td style="padding:4px 0;">${escapeHtml(data.id)}</td></tr>
       </table>
-      <hr style="border:none;border-top:1px solid #222;margin:16px 0;">
-      <p style="color:#666;font-size:11px;margin:0;">User-Agent:<br>${escapeHtml(data.ua)}</p>
       <p style="margin:20px 0 0;">
-        <a href="https://sentinel-grid-6nk.pages.dev/" style="color:#00ff41;">Open Dashboard →</a>
-        &nbsp;·&nbsp;
         <a href="https://sentinel-grid-6nk.pages.dev/specimen/${escapeHtml(data.id)}" style="color:#00ff41;">View Specimen →</a>
       </p>
-    </div>
-  `;
-
+    </div>`;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: 'Sentinel Grid <onboarding@resend.dev>',
         to: ['jusspound@gmail.com'],
         subject: `${subjectTag} · ${data.entity} · threat ${data.threatScore}`,
-        html: html
+        html
       })
     });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('Resend error:', res.status, err);
-    }
-  } catch (e) {
-    console.error('Email send failed:', e.message);
-  }
+  } catch (e) {}
 }
 
 function escapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
