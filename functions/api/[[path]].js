@@ -12,13 +12,11 @@ export async function onRequest(context) {
   if (url.pathname === '/api/logs') {
     if (!env.SENTINEL_KV) return json({ error: 'KV_BINDING_MISSING' }, 500);
     try {
-      const list = await env.SENTINEL_KV.list({ limit: 100 });
+      const list = await env.SENTINEL_KV.list({ prefix: 'hit_', limit: 1000 });
       const logs = [];
       for (const key of list.keys) {
-        if (key.name.startsWith('hit_')) {
-          const value = await env.SENTINEL_KV.get(key.name);
-          if (value) logs.push(JSON.parse(value));
-        }
+        const value = await env.SENTINEL_KV.get(key.name);
+        if (value) logs.push(JSON.parse(value));
       }
       logs.sort((a, b) => new Date(b.time) - new Date(a.time));
       return json(logs);
@@ -41,16 +39,16 @@ export async function onRequest(context) {
         botOfDay: null
       };
 
-      const list = await env.SENTINEL_KV.list();
-      for (const key of list.keys) {
-        if (key.name.startsWith('stats:class:')) {
-          const cls = key.name.replace('stats:class:', '');
-          stats.byClass[cls] = parseInt(await env.SENTINEL_KV.get(key.name) || '0', 10);
-        }
-        if (key.name.startsWith('stats:entity:')) {
-          const ent = key.name.replace('stats:entity:', '');
-          stats.byEntity[ent] = parseInt(await env.SENTINEL_KV.get(key.name) || '0', 10);
-        }
+      const classList = await env.SENTINEL_KV.list({ prefix: 'stats:class:', limit: 1000 });
+      for (const key of classList.keys) {
+        const cls = key.name.replace('stats:class:', '');
+        stats.byClass[cls] = parseInt(await env.SENTINEL_KV.get(key.name) || '0', 10);
+      }
+
+      const entityList = await env.SENTINEL_KV.list({ prefix: 'stats:entity:', limit: 1000 });
+      for (const key of entityList.keys) {
+        const ent = key.name.replace('stats:entity:', '');
+        stats.byEntity[ent] = parseInt(await env.SENTINEL_KV.get(key.name) || '0', 10);
       }
 
       const botOfDay = await env.SENTINEL_KV.get(`botday:${today}`);
