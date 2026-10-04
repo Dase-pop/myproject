@@ -4,4 +4,4 @@ pages_build_output_dir = "."
 
 [[kv_namespaces]]
 binding = "SENTINEL_KV"
-id = "PLACEHOLDER_REPLACE_ME"
+id = "43697b6b36bf4f8cbe795a340157bd6f"
