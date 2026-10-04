@@ -1,109 +1,50 @@
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const userAgent = request.headers.get('User-Agent') || 'Unknown';
-  const ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
 
-  const entity = identifyEntity(userAgent, ip);
-  const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-  const logData = {
-    id: logKey,
-    ip: ip,
-    ua: userAgent,
-    path: url.pathname,
-    time: new Date().toISOString(),
-    entity: entity.name,
-    class: entity.class,
-    isImposter: entity.isImposter,
-    action: url.pathname.startsWith('/trap/') ? 'TRAPPED' : 'OBSERVED'
-  };
-
-  try {
-    await env.SENTINEL_KV.put(logKey, JSON.stringify(logData), { expirationTtl: 604800 });
-  } catch (e) {
-    console.error("KV write failed", e);
-  }
-
-  if (entity.class === 'AI' || entity.class === 'Scraper' || entity.isImposter) {
-    context.waitUntil(sendAlertEmail(env, logData));
-  }
-
-  if (url.pathname.startsWith('/trap/')) {
-    return new Response(generateLabyrinth(), {
-      headers: { 'Content-Type': 'text/html' }
+  if (url.pathname === '/api/debug') {
+    return new Response(JSON.stringify({
+      hasKV: !!env.SENTINEL_KV,
+      envKeys: Object.keys(env),
+      path: url.pathname
+    }, null, 2), {
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 
-  return context.next();
-}
-
-function identifyEntity(ua, ip) {
-  let name = 'Unknown Entity';
-  let classType = 'Feral';
-  let isImposter = false;
-
-  if (/chatgpt-user|claudebot|gptbot|anthropic|bytespider|perplexity/i.test(ua)) {
-    name = 'AI Scraper';
-    classType = 'AI';
-  } else if (/ahrefs|semrush|mj12|dotbot|blexbot|dataforseo/i.test(ua)) {
-    name = 'SEO Harvester';
-    classType = 'Scraper';
-  } else if (/googlebot/i.test(ua)) {
-    name = 'Googlebot';
-    classType = 'Search Engine';
-    if (!ip.startsWith('66.249.') && !ip.startsWith('34.')) {
-      isImposter = true;
-      name = 'Fake Googlebot';
+  if (url.pathname === '/api/logs') {
+    if (!env.SENTINEL_KV) {
+      return new Response(JSON.stringify({ error: 'KV_BINDING_MISSING' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
-  } else if (/bingbot/i.test(ua)) {
-    name = 'Bingbot';
-    classType = 'Search Engine';
-  } else if (/slackbot|twitterbot|facebookexternalhit|discordbot/i.test(ua)) {
-    name = 'Link Preview Bot';
-    classType = 'Petting Zoo';
+
+    try {
+      const list = await env.SENTINEL_KV.list({ limit: 100 });
+      const logs = [];
+
+      for (const key of list.keys) {
+        const value = await env.SENTINEL_KV.get(key.name);
+        if (value) logs.push(JSON.parse(value));
+      }
+
+      logs.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+      return new Response(JSON.stringify(logs), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        }
+      });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
   }
 
-  return { name, class: classType, isImposter };
-}
-
-function generateLabyrinth() {
-  let html = `<html><head><title>Sentinel Grid</title></head>
-  <body style="background:#000;color:#0f0;font-family:monospace;padding:40px;">
-  <h1>⚠️ SENTINEL GRID: TRAP TRIGGERED ⚠️</h1>
-  <p>You have entered a restricted zone. Your IP and User-Agent have been logged.</p>
-  <ul>`;
-  for (let i = 0; i < 50; i++) {
-    html += `<li><a href="/trap/${Math.random().toString(36).substring(7)}" style="color:#0f0;">Decrypting Sector ${i}...</a></li>`;
-  }
-  html += `</ul></body></html>`;
-  return html;
-}
-
-async function sendAlertEmail(env, data) {
-  const text = `SENTINEL GRID ALERT
-
-Entity: ${data.entity}
-Class: ${data.class}
-IP: ${data.ip}
-Path: ${data.path}
-User-Agent: ${data.ua}
-Imposter: ${data.isImposter ? 'YES' : 'NO'}
-Time: ${data.time}
-Log ID: ${data.id}`;
-
-  try {
-    await fetch('https://api.mailchannels.net/tx/v1/send', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: 'jusspound@gmail.com' }] }],
-        from: { email: 'alert@yourdomain.com', name: 'Sentinel Grid' },
-        subject: `[Sentinel] ${data.entity} detected`,
-        content: [{ type: 'text/plain', value: text }]
-      })
-    });
-  } catch (e) {
-    console.error("Email failed", e);
-  }
+  return new Response('Not found', { status: 404 });
 }
