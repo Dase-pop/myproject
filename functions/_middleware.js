@@ -41,9 +41,65 @@ export async function onRequest(context) {
   }
 
   const entity = identifyEntity(userAgent, ip, referer);
-  const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   const threatScore = calculateThreatScore(entity, acceptLang, referer);
 
+  // ===== TRAP ROOM: dedupe by IP =====
+  if (url.pathname.startsWith('/trap/')) {
+    let trapCount = 1;
+    let isNewTrapIp = true;
+
+    try {
+      const trapKey = `trap_count:${ip}`;
+      trapCount = parseInt(await env.SENTINEL_KV.get(trapKey) || '0', 10) + 1;
+      await env.SENTINEL_KV.put(trapKey, String(trapCount), { expirationTtl: 86400 });
+
+      const loggedKey = `trap_logged:${ip}`;
+      const alreadyLogged = await env.SENTINEL_KV.get(loggedKey);
+      if (alreadyLogged) isNewTrapIp = false;
+      else await env.SENTINEL_KV.put(loggedKey, '1', { expirationTtl: 3600 });
+    } catch (e) {}
+
+    if (isNewTrapIp) {
+      // Log only the first hit per IP per hour
+      const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const logData = {
+        id: logKey,
+        ip: ip,
+        ua: userAgent,
+        path: url.pathname,
+        referer: referer,
+        country: country,
+        acceptLang: acceptLang,
+        acceptEnc: acceptEnc,
+        time: new Date().toISOString(),
+        entity: entity.name,
+        class: entity.class,
+        isImposter: entity.isImposter,
+        threatScore: threatScore,
+        action: 'TRAPPED',
+        trapCount: trapCount
+      };
+
+      try {
+        if (env.SENTINEL_KV) {
+          await env.SENTINEL_KV.put(logKey, JSON.stringify(logData), { expirationTtl: 604800 });
+          context.waitUntil(updateStats(env, logData));
+        }
+      } catch (e) {}
+    }
+
+    return new Response(generateLabyrinth(trapCount), {
+      headers: {
+        'Content-Type': 'text/html',
+        'X-Sentinel-KV': isNewTrapIp ? 'ok' : 'deduped',
+        'X-Sentinel-Entity': entity.name,
+        'X-Sentinel-Trap-Count': String(trapCount)
+      }
+    });
+  }
+
+  // ===== NORMAL REQUESTS =====
+  const logKey = `hit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   const logData = {
     id: logKey,
     ip: ip,
@@ -58,7 +114,7 @@ export async function onRequest(context) {
     class: entity.class,
     isImposter: entity.isImposter,
     threatScore: threatScore,
-    action: url.pathname.startsWith('/trap/') ? 'TRAPPED' : 'OBSERVED'
+    action: 'OBSERVED'
   };
 
   let kvResult = 'ok';
@@ -83,16 +139,6 @@ export async function onRequest(context) {
 
   if (shouldAlert && env.RESEND_API_KEY) {
     context.waitUntil(sendAlertIfNotRecent(env, logData));
-  }
-
-  if (url.pathname.startsWith('/trap/')) {
-    return new Response(generateLabyrinth(), {
-      headers: {
-        'Content-Type': 'text/html',
-        'X-Sentinel-KV': kvResult,
-        'X-Sentinel-Entity': entity.name
-      }
-    });
   }
 
   const response = await next();
@@ -224,11 +270,13 @@ async function sendAlertIfNotRecent(env, data) {
   }
 }
 
-function generateLabyrinth() {
+function generateLabyrinth(trapCount) {
+  const count = trapCount || 1;
   let html = `<html><head><title>Sentinel Grid</title></head>
   <body style="background:#000;color:#0f0;font-family:monospace;padding:40px;">
   <h1>⚠️ SENTINEL GRID: TRAP TRIGGERED ⚠️</h1>
   <p>You have entered a restricted zone. Your IP and User-Agent have been logged.</p>
+  <p style="color:#ffaa00;">Trap visits from your IP: <strong>${count}</strong></p>
   <ul>`;
   for (let i = 0; i < 50; i++) {
     html += `<li><a href="/trap/${Math.random().toString(36).substring(7)}" style="color:#0f0;">Decrypting Sector ${i}...</a></li>`;

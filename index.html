@@ -48,6 +48,7 @@ h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px so
 .btn-trap { display:block; text-align:center; margin:20px auto; padding:14px; background:var(--danger); color:white; text-decoration:none; max-width:400px; font-weight:bold; border-radius:5px; letter-spacing:2px; }
 .empty { color:#444; text-align:center; padding:40px; font-style:italic; }
 .footer { text-align:center; color:#333; font-size:0.7em; margin-top:40px; padding-top:20px; border-top:1px solid #1a1a1a; }
+.toggle-label { font-size:0.7em; color:#666; margin-left:12px; cursor:pointer; text-transform:none; letter-spacing:0; }
 </style>
 </head>
 <body>
@@ -67,7 +68,11 @@ h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px so
 
 <a href="/trap/" class="btn-trap">⚠️ ENTER THE TRAP ROOM</a>
 
-<h2>▶ Live Arrivals</h2>
+<h2>▶ Live Arrivals
+  <label class="toggle-label">
+    <input type="checkbox" id="hide-trap" checked style="vertical-align:middle;"> hide trap flood
+  </label>
+</h2>
 <div class="feed" id="feed"><div class="empty">Waiting for entities...</div></div>
 
 <h2>◈ Class Breakdown</h2>
@@ -132,14 +137,19 @@ async function fetchLogs() {
     const data = await res.json();
     if (!Array.isArray(data)) return;
 
+    const hideTrap = document.getElementById('hide-trap')?.checked ?? true;
+    const filtered = hideTrap
+      ? data.filter(l => !(l.path || '').startsWith('/trap/'))
+      : data;
+
     const feed = document.getElementById('feed');
-    if (data.length === 0) {
+    if (filtered.length === 0) {
       feed.innerHTML = '<div class="empty">Waiting for entities...</div>';
       return;
     }
 
     feed.innerHTML = '';
-    data.slice(0, 50).forEach(log => {
+    filtered.slice(0, 50).forEach(log => {
       const a = document.createElement('a');
       a.href = `/specimen/${log.id}`;
       const cls = log.isImposter ? 'imposter' : (log.action === 'TRAPPED' ? 'trapped' : '');
@@ -176,6 +186,8 @@ setInterval(fetchStats, 5000);
 setInterval(fetchLogs, 5000);
 fetchStats();
 fetchLogs();
+
+document.getElementById('hide-trap')?.addEventListener('change', fetchLogs);
 </script>
 </body>
 </html>
