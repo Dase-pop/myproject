@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel Grid | Live Intelligence</title>
+<style>
+:root { --bg:#050505; --panel:#111; --accent:#00ff41; --danger:#ff003c; --text:#ccc; }
+* { box-sizing: border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; margin:0; padding:20px; }
+h1 { color:var(--accent); text-shadow:0 0 10px rgba(0,255,65,0.5); font-size:1.4em; margin:0; }
+h2 { color:var(--accent); font-size:1em; margin-top:30px; border-bottom:1px solid #222; padding-bottom:8px; }
+.header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:15px; flex-wrap:wrap; gap:10px; }
+.header .sub { color:#555; font-size:0.75em; }
+.stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:20px 0; }
+.stat-box { background:var(--panel); padding:15px; border:1px solid #222; border-radius:5px; text-align:center; }
+.stat-box h3 { margin:0 0 5px; color:#666; font-size:0.7em; text-transform:uppercase; letter-spacing:1px; }
+.stat-box .value { font-size:1.8em; color:var(--accent); font-weight:bold; }
+.feed { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+.log-card { background:var(--panel); border-left:4px solid var(--accent); padding:12px; font-size:0.85em; border-radius:0 4px 4px 0; }
+.log-card.imposter { border-left-color:var(--danger); background:#150005; }
+.log-card.trapped { border-left-color:#ffaa00; background:#150e00; }
+.log-card .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.log-card .meta { color:#666; font-size:0.8em; line-height:1.5; }
+.tag { display:inline-block; padding:2px 8px; border-radius:3px; font-size:0.7em; font-weight:bold; }
+.tag.AI { background:#003366; color:#66b3ff; }
+.tag.Scraper { background:#4d2600; color:#ff9933; }
+.tag.Search { background:#003300; color:#66ff66; }
+.tag.Feral { background:#330000; color:#ff6666; }
+.tag.Petting { background:#2b1a4d; color:#b58cff; }
+.btn-trap { display:block; text-align:center; margin:25px auto; padding:15px; background:var(--danger); color:white; text-decoration:none; max-width:400px; font-weight:bold; border-radius:5px; letter-spacing:2px; }
+.empty { color:#444; text-align:center; padding:40px; font-style:italic; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🛡️ SENTINEL GRID</h1>
+  <div class="sub">Live Feed · jusspound@gmail.com</div>
+</div>
+
+<div class="stats">
+  <div class="stat-box"><h3>Total</h3><div class="value" id="total">0</div></div>
+  <div class="stat-box"><h3>Imposters</h3><div class="value" id="imposters" style="color:var(--danger)">0</div></div>
+  <div class="stat-box"><h3>Trapped</h3><div class="value" id="trapped" style="color:#ffaa00">0</div></div>
+</div>
+
+<a href="/trap/" class="btn-trap">⚠️ ENTER THE TRAP ROOM</a>
+
+<h2>▶ Live Arrivals</h2>
+<div class="feed" id="feed"><div class="empty">Waiting for entities...</div></div>
+
+<script>
+async function fetchLogs() {
+  try {
+    const res = await fetch('/api/logs', { cache: 'no-store' });
+    const data = await res.json();
+    if (!Array.isArray(data)) return;
+
+    document.getElementById('total').innerText = data.length;
+    document.getElementById('imposters').innerText = data.filter(d => d.isImposter).length;
+    document.getElementById('trapped').innerText = data.filter(d => d.action === 'TRAPPED').length;
+
+    const feed = document.getElementById('feed');
+    if (data.length === 0) {
+      feed.innerHTML = '<div class="empty">Waiting for entities...</div>';
+      return;
+    }
+
+    feed.innerHTML = '';
+    data.forEach(log => {
+      const div = document.createElement('div');
+      const cls = log.isImposter ? 'imposter' : (log.action === 'TRAPPED' ? 'trapped' : '');
+      const tagClass = (log.class || 'Feral').split(' ')[0];
+      div.className = `log-card ${cls}`;
+      div.innerHTML = `
+        <div class="row">
+          <strong>${log.entity || 'Unknown'}</strong>
+          <span class="tag ${tagClass}">${log.class || 'Feral'}</span>
+        </div>
+        <div class="meta">
+          IP: ${log.ip || '?'}<br>
+          Path: ${log.path || '/'}<br>
+          ${log.isImposter ? '<span style="color:#ff003c;">⚠ IMPOSTER DETECTED</span><br>' : ''}
+          ${log.action === 'TRAPPED' ? '<span style="color:#ffaa00;">🔒 IN TRAP</span><br>' : ''}
+          <span style="color:#444;">${log.time || ''}</span>
+        </div>
+      `;
+      feed.appendChild(div);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+setInterval(fetchLogs, 3000);
+fetchLogs();
+</script>
+</body>
+</html>
