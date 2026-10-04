@@ -9,7 +9,7 @@
 * { box-sizing: border-box; }
 body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; margin:0; padding:16px; }
 h1 { color:var(--accent); text-shadow:0 0 10px rgba(0,255,65,0.5); font-size:1.3em; margin:0; }
-h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px solid #222; padding-bottom:8px; letter-spacing:1px; text-transform:uppercase; }
+h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px solid #222; padding-bottom:8px; letter-spacing:1px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
 .header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:14px; flex-wrap:wrap; gap:8px; }
 .header .sub { color:#555; font-size:0.72em; }
 .stats { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:16px 0; }
@@ -48,7 +48,7 @@ h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px so
 .btn-trap { display:block; text-align:center; margin:20px auto; padding:14px; background:var(--danger); color:white; text-decoration:none; max-width:400px; font-weight:bold; border-radius:5px; letter-spacing:2px; }
 .empty { color:#444; text-align:center; padding:40px; font-style:italic; }
 .footer { text-align:center; color:#333; font-size:0.7em; margin-top:40px; padding-top:20px; border-top:1px solid #1a1a1a; }
-.toggle-label { font-size:0.7em; color:#666; margin-left:12px; cursor:pointer; text-transform:none; letter-spacing:0; }
+.toggle-label { font-size:0.7em; color:#666; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:normal; }
 </style>
 </head>
 <body>
@@ -68,7 +68,8 @@ h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px so
 
 <a href="/trap/" class="btn-trap">⚠️ ENTER THE TRAP ROOM</a>
 
-<h2>▶ Live Arrivals
+<h2>
+  <span>▶ Live Arrivals</span>
   <label class="toggle-label">
     <input type="checkbox" id="hide-trap" checked style="vertical-align:middle;"> hide trap flood
   </label>
@@ -182,12 +183,30 @@ function escapeHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-setInterval(fetchStats, 5000);
-setInterval(fetchLogs, 5000);
-fetchStats();
-fetchLogs();
+let refreshTimer;
+
+function startRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    if (!document.hidden) {
+      fetchStats();
+      fetchLogs();
+    }
+  }, 30000);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    fetchStats();
+    fetchLogs();
+  }
+});
 
 document.getElementById('hide-trap')?.addEventListener('change', fetchLogs);
+
+fetchStats();
+fetchLogs();
+startRefresh();
 </script>
 </body>
 </html>
