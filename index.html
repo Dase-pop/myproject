@@ -5,31 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sentinel Grid | Live Intelligence</title>
 <style>
-:root { --bg:#050505; --panel:#111; --accent:#00ff41; --danger:#ff003c; --text:#ccc; }
+:root { --bg:#050505; --panel:#111; --accent:#00ff41; --danger:#ff003c; --warn:#ffaa00; --text:#ccc; }
 * { box-sizing: border-box; }
-body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; margin:0; padding:20px; }
-h1 { color:var(--accent); text-shadow:0 0 10px rgba(0,255,65,0.5); font-size:1.4em; margin:0; }
-h2 { color:var(--accent); font-size:1em; margin-top:30px; border-bottom:1px solid #222; padding-bottom:8px; }
-.header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:15px; flex-wrap:wrap; gap:10px; }
-.header .sub { color:#555; font-size:0.75em; }
-.stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:20px 0; }
-.stat-box { background:var(--panel); padding:15px; border:1px solid #222; border-radius:5px; text-align:center; }
-.stat-box h3 { margin:0 0 5px; color:#666; font-size:0.7em; text-transform:uppercase; letter-spacing:1px; }
-.stat-box .value { font-size:1.8em; color:var(--accent); font-weight:bold; }
-.feed { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
-.log-card { background:var(--panel); border-left:4px solid var(--accent); padding:12px; font-size:0.85em; border-radius:0 4px 4px 0; }
+body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; margin:0; padding:16px; }
+h1 { color:var(--accent); text-shadow:0 0 10px rgba(0,255,65,0.5); font-size:1.3em; margin:0; }
+h2 { color:var(--accent); font-size:0.9em; margin-top:28px; border-bottom:1px solid #222; padding-bottom:8px; letter-spacing:1px; text-transform:uppercase; }
+.header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:14px; flex-wrap:wrap; gap:8px; }
+.header .sub { color:#555; font-size:0.72em; }
+.stats { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:16px 0; }
+@media(min-width:600px){ .stats { grid-template-columns:repeat(4,1fr); } }
+.stat-box { background:var(--panel); padding:14px; border:1px solid #222; border-radius:6px; text-align:center; }
+.stat-box h3 { margin:0 0 6px; color:#666; font-size:0.62em; text-transform:uppercase; letter-spacing:1.5px; }
+.stat-box .value { font-size:1.7em; color:var(--accent); font-weight:bold; }
+.stat-box.warn .value { color:var(--warn); }
+.stat-box.danger .value { color:var(--danger); }
+.bot-of-day { background:linear-gradient(135deg,#071a07,#111); border:1px solid var(--accent); border-radius:6px; padding:14px; margin:16px 0; }
+.bot-of-day .label { color:var(--accent); font-size:0.7em; letter-spacing:2px; }
+.bot-of-day .name { color:#fff; font-size:1.1em; margin:6px 0; font-weight:bold; }
+.bot-of-day .meta { color:#777; font-size:0.78em; margin-top:6px; line-height:1.5; }
+.class-breakdown { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin:12px 0; }
+.class-pill { background:var(--panel); border:1px solid #222; border-radius:5px; padding:10px; text-align:center; font-size:0.78em; }
+.class-pill .count { font-size:1.3em; font-weight:bold; color:var(--accent); display:block; margin-top:4px; }
+.feed { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px; }
+.log-card { background:var(--panel); border-left:4px solid var(--accent); padding:12px; font-size:0.82em; border-radius:0 4px 4px 0; cursor:pointer; text-decoration:none; color:inherit; display:block; transition:background 0.15s; }
+.log-card:hover { background:#1a1a1a; }
 .log-card.imposter { border-left-color:var(--danger); background:#150005; }
-.log-card.trapped { border-left-color:#ffaa00; background:#150e00; }
-.log-card .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-.log-card .meta { color:#666; font-size:0.8em; line-height:1.5; }
-.tag { display:inline-block; padding:2px 8px; border-radius:3px; font-size:0.7em; font-weight:bold; }
+.log-card.trapped { border-left-color:var(--warn); background:#150e00; }
+.log-card .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px; }
+.log-card .meta { color:#666; font-size:0.78em; line-height:1.5; }
+.tag { display:inline-block; padding:2px 8px; border-radius:3px; font-size:0.68em; font-weight:bold; }
 .tag.AI { background:#003366; color:#66b3ff; }
 .tag.Scraper { background:#4d2600; color:#ff9933; }
 .tag.Search { background:#003300; color:#66ff66; }
 .tag.Feral { background:#330000; color:#ff6666; }
+.tag.Threat { background:#660000; color:#ff4444; }
+.tag.Monitor { background:#1a1a33; color:#8888ff; }
 .tag.Petting { background:#2b1a4d; color:#b58cff; }
-.btn-trap { display:block; text-align:center; margin:25px auto; padding:15px; background:var(--danger); color:white; text-decoration:none; max-width:400px; font-weight:bold; border-radius:5px; letter-spacing:2px; }
+.threat-pill { display:inline-block; padding:2px 6px; border-radius:3px; font-size:0.7em; font-weight:bold; margin-left:6px; }
+.threat-low { background:#003300; color:#66ff66; }
+.threat-mid { background:#4d3a00; color:#ffaa00; }
+.threat-high { background:#4d0000; color:#ff4444; }
+.btn-trap { display:block; text-align:center; margin:20px auto; padding:14px; background:var(--danger); color:white; text-decoration:none; max-width:400px; font-weight:bold; border-radius:5px; letter-spacing:2px; }
 .empty { color:#444; text-align:center; padding:40px; font-style:italic; }
+.footer { text-align:center; color:#333; font-size:0.7em; margin-top:40px; padding-top:20px; border-top:1px solid #1a1a1a; }
 </style>
 </head>
 <body>
@@ -39,26 +57,80 @@ h2 { color:var(--accent); font-size:1em; margin-top:30px; border-bottom:1px soli
 </div>
 
 <div class="stats">
-  <div class="stat-box"><h3>Total</h3><div class="value" id="total">0</div></div>
-  <div class="stat-box"><h3>Imposters</h3><div class="value" id="imposters" style="color:var(--danger)">0</div></div>
-  <div class="stat-box"><h3>Trapped</h3><div class="value" id="trapped" style="color:#ffaa00">0</div></div>
+  <div class="stat-box"><h3>Lifetime</h3><div class="value" id="stat-total">0</div></div>
+  <div class="stat-box warn"><h3>Today</h3><div class="value" id="stat-today">0</div></div>
+  <div class="stat-box danger"><h3>Imposters</h3><div class="value" id="stat-imposters">0</div></div>
+  <div class="stat-box warn"><h3>Trapped</h3><div class="value" id="stat-trapped">0</div></div>
 </div>
+
+<div id="bot-of-day-container"></div>
 
 <a href="/trap/" class="btn-trap">⚠️ ENTER THE TRAP ROOM</a>
 
 <h2>▶ Live Arrivals</h2>
 <div class="feed" id="feed"><div class="empty">Waiting for entities...</div></div>
 
+<h2>◈ Class Breakdown</h2>
+<div class="class-breakdown" id="class-breakdown"><div class="empty" style="padding:12px;">Loading...</div></div>
+
+<h2>◈ Top Entities</h2>
+<div class="class-breakdown" id="entity-breakdown"><div class="empty" style="padding:12px;">Loading...</div></div>
+
+<div class="footer">
+  Sentinel Grid · <span id="updated">—</span> · <a href="/api/stats" style="color:#444;">raw stats</a>
+</div>
+
 <script>
+async function fetchStats() {
+  try {
+    const res = await fetch('/api/stats', { cache: 'no-store' });
+    const s = await res.json();
+    if (s.error) return;
+
+    document.getElementById('stat-total').innerText = s.total || 0;
+    document.getElementById('stat-today').innerText = s.today || 0;
+    document.getElementById('stat-imposters').innerText = s.imposters || 0;
+    document.getElementById('stat-trapped').innerText = s.trapped || 0;
+
+    if (s.botOfDay) {
+      const b = s.botOfDay;
+      document.getElementById('bot-of-day-container').innerHTML = `
+        <div class="bot-of-day">
+          <div class="label">◈ BOT OF THE DAY</div>
+          <div class="name">${escapeHtml(b.entity)}</div>
+          <span class="tag ${escapeHtml(b.class)}">${escapeHtml(b.class)}</span>
+          <div class="meta">
+            IP: ${escapeHtml(b.ip)} · ${escapeHtml(b.country || 'XX')}<br>
+            Threat: ${b.threatScore || 0}/100 · Path: ${escapeHtml(b.path)}
+          </div>
+          <div class="meta" style="margin-top:8px;">
+            <a href="/specimen/${escapeHtml(b.id)}" style="color:#00ff41;">View Dossier →</a>
+          </div>
+        </div>
+      `;
+    }
+
+    const cb = document.getElementById('class-breakdown');
+    const classes = Object.entries(s.byClass || {}).sort((a,b) => b[1]-a[1]);
+    cb.innerHTML = classes.length
+      ? classes.map(([k,v]) => `<div class="class-pill"><span>${escapeHtml(k)}</span><span class="count">${v}</span></div>`).join('')
+      : '<div class="empty" style="padding:12px;">No data yet.</div>';
+
+    const eb = document.getElementById('entity-breakdown');
+    const entities = Object.entries(s.byEntity || {}).sort((a,b) => b[1]-a[1]).slice(0, 12);
+    eb.innerHTML = entities.length
+      ? entities.map(([k,v]) => `<div class="class-pill"><span>${escapeHtml(k)}</span><span class="count">${v}</span></div>`).join('')
+      : '<div class="empty" style="padding:12px;">No data yet.</div>';
+
+    document.getElementById('updated').innerText = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e) { console.error(e); }
+}
+
 async function fetchLogs() {
   try {
     const res = await fetch('/api/logs', { cache: 'no-store' });
     const data = await res.json();
     if (!Array.isArray(data)) return;
-
-    document.getElementById('total').innerText = data.length;
-    document.getElementById('imposters').innerText = data.filter(d => d.isImposter).length;
-    document.getElementById('trapped').innerText = data.filter(d => d.action === 'TRAPPED').length;
 
     const feed = document.getElementById('feed');
     if (data.length === 0) {
@@ -67,32 +139,42 @@ async function fetchLogs() {
     }
 
     feed.innerHTML = '';
-    data.forEach(log => {
-      const div = document.createElement('div');
+    data.slice(0, 50).forEach(log => {
+      const a = document.createElement('a');
+      a.href = `/specimen/${log.id}`;
       const cls = log.isImposter ? 'imposter' : (log.action === 'TRAPPED' ? 'trapped' : '');
       const tagClass = (log.class || 'Feral').split(' ')[0];
-      div.className = `log-card ${cls}`;
-      div.innerHTML = `
+      const threat = log.threatScore || 0;
+      const threatClass = threat >= 50 ? 'threat-high' : (threat >= 25 ? 'threat-mid' : 'threat-low');
+      a.className = `log-card ${cls}`;
+      a.innerHTML = `
         <div class="row">
-          <strong>${log.entity || 'Unknown'}</strong>
-          <span class="tag ${tagClass}">${log.class || 'Feral'}</span>
+          <strong>${escapeHtml(log.entity)}</strong>
+          <span>
+            <span class="tag ${tagClass}">${escapeHtml(log.class)}</span>
+            <span class="threat-pill ${threatClass}">${threat}</span>
+          </span>
         </div>
         <div class="meta">
-          IP: ${log.ip || '?'}<br>
-          Path: ${log.path || '/'}<br>
-          ${log.isImposter ? '<span style="color:#ff003c;">⚠ IMPOSTER DETECTED</span><br>' : ''}
+          IP: ${escapeHtml(log.ip)} ${log.country ? '· ' + escapeHtml(log.country) : ''}<br>
+          Path: ${escapeHtml(log.path)}<br>
+          ${log.isImposter ? '<span style="color:#ff003c;">⚠ IMPOSTER</span><br>' : ''}
           ${log.action === 'TRAPPED' ? '<span style="color:#ffaa00;">🔒 IN TRAP</span><br>' : ''}
           <span style="color:#444;">${log.time || ''}</span>
         </div>
       `;
-      feed.appendChild(div);
+      feed.appendChild(a);
     });
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 }
 
-setInterval(fetchLogs, 3000);
+function escapeHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+setInterval(fetchStats, 5000);
+setInterval(fetchLogs, 5000);
+fetchStats();
 fetchLogs();
 </script>
 </body>
